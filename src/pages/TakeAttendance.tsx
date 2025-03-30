@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -15,17 +14,22 @@ import {
 import { Camera, Upload } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { toast } from "sonner";
+import { db, storage } from "@/lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
 const TakeAttendance = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [className, setClassName] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      setPhotoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhoto(reader.result as string);
@@ -43,7 +47,7 @@ const TakeAttendance = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!photo) {
+    if (!photo || !photoFile) {
       toast.error("Please take or upload a photo");
       return;
     }
@@ -61,24 +65,35 @@ const TakeAttendance = () => {
     setIsLoading(true);
     
     try {
-      // This is where we would send the data to Firebase
-      // In a real implementation, this would call the cloud functions
-      // that would run the Python code you've shared
+      // 1. Upload the photo to Firebase Storage
+      const storageRef = ref(storage, `class_photos/${Date.now()}_${photoFile.name}`);
+      await uploadBytes(storageRef, photoFile);
+      const photoURL = await getDownloadURL(storageRef);
       
-      setTimeout(() => {
-        setIsLoading(false);
-        toast.success("Attendance recorded successfully!");
-        navigate("/success", { 
-          state: { 
-            className, 
-            timeSlot, 
-            timestamp: new Date().toISOString() 
-          } 
-        });
-      }, 2000);
+      // 2. Save the attendance request to Firestore
+      await addDoc(collection(db, "attendance_requests"), {
+        className,
+        timeSlot,
+        photoURL,
+        status: "pending", // Will be processed by your cloud function
+        timestamp: serverTimestamp(),
+      });
+      
+      // In a production app, we would trigger a cloud function to process the image
+      // with your Python model, but for now we'll simulate success
+      
+      setIsLoading(false);
+      toast.success("Attendance request submitted for processing!");
+      navigate("/success", { 
+        state: { 
+          className, 
+          timeSlot, 
+          timestamp: new Date().toISOString() 
+        } 
+      });
     } catch (error) {
       console.error("Error submitting attendance:", error);
-      toast.error("Failed to record attendance");
+      toast.error("Failed to submit attendance request");
       setIsLoading(false);
     }
   };
@@ -142,7 +157,10 @@ const TakeAttendance = () => {
                     type="button"
                     variant="outline" 
                     size="sm"
-                    onClick={() => setPhoto(null)}
+                    onClick={() => {
+                      setPhoto(null);
+                      setPhotoFile(null);
+                    }}
                     className="absolute top-2 right-2 bg-white/80 hover:bg-white"
                   >
                     Change
