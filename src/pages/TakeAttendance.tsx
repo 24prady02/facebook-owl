@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,12 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, Upload } from "lucide-react";
+import { Camera, Upload, UserCheck } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { toast } from "sonner";
 import { db, storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, doc, onSnapshot } from "firebase/firestore";
 
 const TakeAttendance = () => {
   const navigate = useNavigate();
@@ -25,6 +26,47 @@ const TakeAttendance = () => {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [className, setClassName] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  
+  // Listen for updates to the attendance request
+  useEffect(() => {
+    if (!requestId) return;
+    
+    const unsubscribe = onSnapshot(doc(db, "attendance_requests", requestId), (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const data = docSnapshot.data();
+        const status = data.status;
+        
+        setProcessingStatus(status);
+        
+        if (status === "completed") {
+          setIsLoading(false);
+          
+          // Calculate attendance summary
+          const attendanceCount = data.attendance?.length || 0;
+          const facesDetected = data.facesDetected || 0;
+          
+          toast.success(`Attendance processed! ${attendanceCount} students marked present.`);
+          
+          navigate("/success", { 
+            state: { 
+              className, 
+              timeSlot, 
+              timestamp: new Date().toISOString(),
+              attendance: data.attendance || [],
+              facesDetected
+            } 
+          });
+        } else if (status === "error") {
+          setIsLoading(false);
+          toast.error(`Error processing attendance: ${data.message || "Unknown error"}`);
+        }
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [requestId, className, timeSlot, navigate]);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -63,6 +105,7 @@ const TakeAttendance = () => {
     }
     
     setIsLoading(true);
+    setProcessingStatus("uploading");
     
     try {
       // 1. Upload the photo to Firebase Storage
@@ -70,8 +113,10 @@ const TakeAttendance = () => {
       await uploadBytes(storageRef, photoFile);
       const photoURL = await getDownloadURL(storageRef);
       
+      setProcessingStatus("pending");
+      
       // 2. Save the attendance request to Firestore
-      await addDoc(collection(db, "attendance_requests"), {
+      const docRef = await addDoc(collection(db, "attendance_requests"), {
         className,
         timeSlot,
         photoURL,
@@ -79,22 +124,34 @@ const TakeAttendance = () => {
         timestamp: serverTimestamp(),
       });
       
-      // In a production app, we would trigger a cloud function to process the image
-      // with your Python model, but for now we'll simulate success
+      // Store the request ID for tracking
+      setRequestId(docRef.id);
       
-      setIsLoading(false);
-      toast.success("Attendance request submitted for processing!");
-      navigate("/success", { 
-        state: { 
-          className, 
-          timeSlot, 
-          timestamp: new Date().toISOString() 
-        } 
-      });
+      // Show processing message
+      toast.info("Photo submitted for face recognition processing");
+      
+      // Note: We don't navigate here anymore as we'll wait for the cloud function to complete
     } catch (error) {
       console.error("Error submitting attendance:", error);
       toast.error("Failed to submit attendance request");
       setIsLoading(false);
+      setProcessingStatus(null);
+    }
+  };
+  
+  // Render different status messages based on processing state
+  const renderStatusMessage = () => {
+    if (!processingStatus) return null;
+    
+    switch (processingStatus) {
+      case "uploading":
+        return "Uploading photo...";
+      case "pending":
+        return "Processing faces...";
+      case "processing":
+        return "Analyzing students...";
+      default:
+        return "Processing...";
     }
   };
   
@@ -111,6 +168,7 @@ const TakeAttendance = () => {
             <Select
               value={className}
               onValueChange={setClassName}
+              disabled={isLoading}
               required
             >
               <SelectTrigger>
@@ -130,6 +188,7 @@ const TakeAttendance = () => {
             <Select
               value={timeSlot}
               onValueChange={setTimeSlot}
+              disabled={isLoading}
               required
             >
               <SelectTrigger>
@@ -153,18 +212,20 @@ const TakeAttendance = () => {
                     alt="Class" 
                     className="w-full h-full object-cover" 
                   />
-                  <Button
-                    type="button"
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => {
-                      setPhoto(null);
-                      setPhotoFile(null);
-                    }}
-                    className="absolute top-2 right-2 bg-white/80 hover:bg-white"
-                  >
-                    Change
-                  </Button>
+                  {!isLoading && (
+                    <Button
+                      type="button"
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        setPhoto(null);
+                        setPhotoFile(null);
+                      }}
+                      className="absolute top-2 right-2 bg-white/80 hover:bg-white"
+                    >
+                      Change
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -173,6 +234,7 @@ const TakeAttendance = () => {
                     variant="outline"
                     className="h-24 flex-col border-dashed border-2"
                     onClick={handleCapture}
+                    disabled={isLoading}
                   >
                     <Camera className="h-6 w-6 mb-2" />
                     <span>Take Photo</span>
@@ -183,6 +245,7 @@ const TakeAttendance = () => {
                       type="button"
                       variant="outline"
                       className="h-full w-full flex-col border-dashed border-2"
+                      disabled={isLoading}
                     >
                       <Upload className="h-6 w-6 mb-2" />
                       <span>Upload</span>
@@ -191,6 +254,7 @@ const TakeAttendance = () => {
                       type="file"
                       accept="image/*"
                       onChange={handleFileChange}
+                      disabled={isLoading}
                       className="absolute inset-0 opacity-0 cursor-pointer"
                     />
                   </div>
@@ -199,12 +263,28 @@ const TakeAttendance = () => {
             </div>
           </Card>
           
+          {isLoading && processingStatus && (
+            <div className="bg-blue-50 p-4 rounded-md flex items-center gap-3">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+              <p className="text-blue-700">{renderStatusMessage()}</p>
+            </div>
+          )}
+          
           <Button 
             type="submit" 
             className="w-full bg-blue-600 hover:bg-blue-700"
             disabled={isLoading || !photo || !className || !timeSlot}
           >
-            {isLoading ? "Processing..." : "Submit Attendance"}
+            {isLoading ? (
+              <span className="flex items-center gap-2">
+                <span className="animate-pulse">Processing</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5" />
+                <span>Submit Attendance</span>
+              </span>
+            )}
           </Button>
         </form>
       </div>

@@ -2,14 +2,22 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, User, UsersRound } from "lucide-react";
 import { motion } from "framer-motion";
 import AppHeader from "@/components/AppHeader";
+
+interface AttendanceRecord {
+  studentId: string;
+  status: string;
+  distance: number;
+}
 
 interface LocationState {
   className: string;
   timeSlot: string;
   timestamp: string;
+  attendance?: AttendanceRecord[];
+  facesDetected?: number;
 }
 
 const Success = () => {
@@ -66,6 +74,35 @@ const Success = () => {
                   {new Date(state.timestamp).toLocaleString()}
                 </p>
               </div>
+
+              {state.facesDetected !== undefined && (
+                <div>
+                  <p className="text-sm text-gray-500">Faces Detected</p>
+                  <p className="font-medium flex items-center justify-center gap-1">
+                    <UsersRound className="h-4 w-4" />
+                    {state.facesDetected}
+                  </p>
+                </div>
+              )}
+              
+              {state.attendance && state.attendance.length > 0 && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-2">Students Present</p>
+                  <div className="bg-gray-50 rounded-md p-2">
+                    <ul className="space-y-1 max-h-32 overflow-auto">
+                      {state.attendance.map((record, index) => (
+                        <li 
+                          key={index}
+                          className="text-left flex items-center gap-2 p-2 text-sm border-b last:border-0"
+                        >
+                          <User className="h-4 w-4 text-green-600" />
+                          <span className="font-medium">{record.studentId}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           
