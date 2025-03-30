@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -15,9 +14,9 @@ import {
 import { Camera, Upload, UserCheck } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { toast } from "sonner";
-import { db, storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { addDoc, collection, serverTimestamp, doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
+const FLASK_API_URL = process.env.REACT_APP_FLASK_API_URL || "http://localhost:5000";
 
 const TakeAttendance = () => {
   const navigate = useNavigate();
@@ -26,47 +25,7 @@ const TakeAttendance = () => {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [className, setClassName] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
-  const [requestId, setRequestId] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
-  
-  // Listen for updates to the attendance request
-  useEffect(() => {
-    if (!requestId) return;
-    
-    const unsubscribe = onSnapshot(doc(db, "attendance_requests", requestId), (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const data = docSnapshot.data();
-        const status = data.status;
-        
-        setProcessingStatus(status);
-        
-        if (status === "completed") {
-          setIsLoading(false);
-          
-          // Calculate attendance summary
-          const attendanceCount = data.attendance?.length || 0;
-          const facesDetected = data.facesDetected || 0;
-          
-          toast.success(`Attendance processed! ${attendanceCount} students marked present.`);
-          
-          navigate("/success", { 
-            state: { 
-              className, 
-              timeSlot, 
-              timestamp: new Date().toISOString(),
-              attendance: data.attendance || [],
-              facesDetected
-            } 
-          });
-        } else if (status === "error") {
-          setIsLoading(false);
-          toast.error(`Error processing attendance: ${data.message || "Unknown error"}`);
-        }
-      }
-    });
-    
-    return () => unsubscribe();
-  }, [requestId, className, timeSlot, navigate]);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -81,7 +40,6 @@ const TakeAttendance = () => {
   };
   
   const handleCapture = () => {
-    // This would be implemented with a native camera API through Capacitor
     console.log("Opening camera");
     toast.info("Camera functionality will be available in the mobile app");
   };
@@ -108,48 +66,66 @@ const TakeAttendance = () => {
     setProcessingStatus("uploading");
     
     try {
-      // 1. Upload the photo to Firebase Storage
-      const storageRef = ref(storage, `class_photos/${Date.now()}_${photoFile.name}`);
-      await uploadBytes(storageRef, photoFile);
-      const photoURL = await getDownloadURL(storageRef);
+      const formData = new FormData();
+      formData.append("image", photoFile);
+      formData.append("className", className);
+      formData.append("timeSlot", timeSlot);
       
-      setProcessingStatus("pending");
+      toast.info("Uploading photo to server...");
+      setProcessingStatus("processing");
       
-      // 2. Save the attendance request to Firestore
-      const docRef = await addDoc(collection(db, "attendance_requests"), {
-        className,
-        timeSlot,
-        photoURL,
-        status: "pending", // Will be processed by your cloud function
-        timestamp: serverTimestamp(),
+      const response = await fetch(`${FLASK_API_URL}/process-attendance`, {
+        method: "POST",
+        body: formData,
       });
       
-      // Store the request ID for tracking
-      setRequestId(docRef.id);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to process attendance");
+      }
       
-      // Show processing message
-      toast.info("Photo submitted for face recognition processing");
+      const data = await response.json();
       
-      // Note: We don't navigate here anymore as we'll wait for the cloud function to complete
+      setIsLoading(false);
+      setProcessingStatus(null);
+      
+      const attendanceCount = data.attendance?.length || 0;
+      const facesDetected = data.facesDetected || 0;
+      
+      if (attendanceCount > 0) {
+        toast.success(`Attendance processed! ${attendanceCount} students marked present.`);
+      } else if (facesDetected > 0) {
+        toast.warning(`${facesDetected} faces detected, but no matching students found.`);
+      } else {
+        toast.info("No faces detected in the image.");
+      }
+      
+      navigate("/success", { 
+        state: { 
+          className, 
+          timeSlot, 
+          timestamp: new Date().toISOString(),
+          attendance: data.attendance || [],
+          facesDetected
+        } 
+      });
+      
     } catch (error) {
-      console.error("Error submitting attendance:", error);
-      toast.error("Failed to submit attendance request");
+      console.error("Error processing attendance:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to process attendance");
       setIsLoading(false);
       setProcessingStatus(null);
     }
   };
   
-  // Render different status messages based on processing state
   const renderStatusMessage = () => {
     if (!processingStatus) return null;
     
     switch (processingStatus) {
       case "uploading":
         return "Uploading photo...";
-      case "pending":
-        return "Processing faces...";
       case "processing":
-        return "Analyzing students...";
+        return "Processing faces...";
       default:
         return "Processing...";
     }
