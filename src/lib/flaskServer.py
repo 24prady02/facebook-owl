@@ -1,5 +1,5 @@
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import cv2
@@ -11,6 +11,8 @@ from firebase_admin import credentials, firestore, storage
 from datetime import datetime
 import tempfile
 import faiss
+import pandas as pd
+import io
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -46,11 +48,26 @@ def initialize_face_model():
 def normalize_embedding(embedding):
     return embedding / np.linalg.norm(embedding)
 
+def get_collection_names(class_name, slot):
+    """Generate consistent collection names based on class and slot"""
+    # Remove spaces and special characters but preserve case
+    clean_class = ''.join(e for e in class_name if e.isalnum())
+    clean_slot = ''.join(e for e in slot if e.isalnum())
+    
+    embeddings_collection = f"{clean_class}_{clean_slot}_embeddings"
+    attendance_collection = f"{clean_class}_{clean_slot}_attendance"
+    
+    return embeddings_collection, attendance_collection
+
 # Function to build a FAISS index from Firestore embeddings
-def build_faiss_index(db):
+def build_faiss_index(db, embeddings_collection):
     try:
         # Fetch all embeddings from Firestore
-        docs = db.collection("embeddings").stream()
+        docs = list(db.collection(embeddings_collection).stream())
+        
+        if not docs:
+            print(f"No embeddings found in {embeddings_collection}.")
+            return None, None
 
         embeddings_list = []
         student_ids = []
@@ -64,7 +81,7 @@ def build_faiss_index(db):
                 student_ids.append(doc.id)
 
         if not embeddings_list:
-            print("No embeddings found in Firestore.")
+            print("No valid embeddings found in Firestore.")
             return None, None
 
         # Convert list of embeddings to a numpy array
@@ -105,19 +122,60 @@ def search_student_with_faiss(embedding, index, student_ids, threshold=1.0):
     return None, None
 
 # Function to Mark Attendance
-def mark_attendance(db, student_id, class_name, slot):
-    # Get the current date
-    date = datetime.now().strftime("%Y-%m-%d")
+def mark_attendance(db, student_id, attendance_collection, class_name, slot):
+    try:
+        # Create attendance record
+        record = {
+            'student_id': student_id,
+            'class': class_name,
+            'slot': slot,
+            'timestamp': datetime.now(),
+            'status': 'present',
+            'date': datetime.now().strftime("%Y-%m-%d")
+        }
+        
+        # Add to attendance collection
+        db.collection(attendance_collection).document(student_id).set(record, merge=True)
+        print(f"Attendance marked for {student_id} in {attendance_collection}")
+        return True
+    except Exception as e:
+        print(f"Error marking attendance: {e}")
+        return False
 
-    # Mark attendance in Firestore with class and slot
-    db.collection("attendance").document(student_id).set({
-        "date": date,
-        "status": "present",
-        "class": class_name,
-        "slot": slot,
-        "timestamp": datetime.now()
-    }, merge=True)
-    print(f"Attendance marked for student ID: {student_id} in class {class_name}, slot {slot}")
+# Function to export attendance records to Excel
+def export_attendance_to_excel(db, attendance_collection, class_name, slot):
+    try:
+        # Get all attendance records for today
+        today = datetime.now().strftime("%Y-%m-%d")
+        records_ref = db.collection(attendance_collection).where('date', '==', today)
+        docs = records_ref.stream()
+        
+        # Prepare data for DataFrame
+        attendance_data = []
+        for doc in docs:
+            record = doc.to_dict()
+            attendance_data.append({
+                'Student ID': record.get('student_id', ''),
+                'Class': record.get('class', ''),
+                'Slot': record.get('slot', ''),
+                'Timestamp': record.get('timestamp', datetime.now()).strftime("%Y-%m-%d %H:%M:%S"),
+                'Status': record.get('status', '')
+            })
+        
+        if not attendance_data:
+            print("No attendance records found for today.")
+            return None
+        
+        # Create DataFrame and export to Excel
+        df = pd.DataFrame(attendance_data)
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        
+        return excel_buffer
+    except Exception as e:
+        print(f"Error exporting attendance: {e}")
+        return None
 
 @app.route('/process-attendance', methods=['POST'])
 def process_attendance():
@@ -141,6 +199,10 @@ def process_attendance():
     if not class_name or not time_slot:
         return jsonify({"error": "Missing className or timeSlot"}), 400
     
+    # Generate collection names
+    embeddings_collection, attendance_collection = get_collection_names(class_name, time_slot)
+    print(f"Using collections: {embeddings_collection}, {attendance_collection}")
+    
     # Save the image to a temporary file
     with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_image:
         image_file.save(temp_image.name)
@@ -148,9 +210,9 @@ def process_attendance():
     
     try:
         # Initialize FAISS index
-        index, student_ids = build_faiss_index(db)
+        index, student_ids = build_faiss_index(db, embeddings_collection)
         if index is None:
-            return jsonify({"error": "Failed to build FAISS index"}), 500
+            return jsonify({"error": f"No embeddings found in collection {embeddings_collection}"}), 400
         
         # Load the image
         image = cv2.imread(temp_image_path)
@@ -176,6 +238,7 @@ def process_attendance():
         
         # Process each detected face
         attendance_results = []
+        marked_students = set()  # To avoid duplicate marking
         
         for face in faces:
             embedding = face['embedding']
@@ -183,9 +246,10 @@ def process_attendance():
             # Search for matching student
             student_id, distance = search_student_with_faiss(embedding, index, student_ids, threshold=1.0)
             
-            if student_id:
+            if student_id and student_id not in marked_students:
                 # Mark attendance
-                mark_attendance(db, student_id, class_name, time_slot)
+                mark_attendance(db, student_id, attendance_collection, class_name, time_slot)
+                marked_students.add(student_id)
                 
                 # Add to results
                 attendance_results.append({
@@ -202,7 +266,8 @@ def process_attendance():
             "status": "completed",
             "message": f"Processed {len(faces)} faces",
             "attendance": attendance_results,
-            "facesDetected": len(faces)
+            "facesDetected": len(faces),
+            "collectionName": attendance_collection
         })
         
     except Exception as e:
@@ -212,6 +277,40 @@ def process_attendance():
         
         print(f"Error processing image: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/export-attendance', methods=['GET'])
+def export_attendance():
+    if not initialize_firebase():
+        return jsonify({"error": "Failed to initialize Firebase"}), 500
+    
+    # Initialize Firestore
+    db = firestore.Client()
+    
+    # Get parameters from the request
+    class_name = request.args.get('className')
+    time_slot = request.args.get('timeSlot')
+    
+    if not class_name or not time_slot:
+        return jsonify({"error": "Missing className or timeSlot"}), 400
+    
+    # Generate collection names
+    _, attendance_collection = get_collection_names(class_name, time_slot)
+    
+    # Export attendance to Excel
+    excel_buffer = export_attendance_to_excel(db, attendance_collection, class_name, time_slot)
+    if excel_buffer is None:
+        return jsonify({"error": "No attendance records found"}), 404
+    
+    # Create a sanitized filename
+    filename = f"attendance_{class_name.replace(' ', '')}_{time_slot}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    
+    # Return the Excel file
+    return send_file(
+        excel_buffer,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 if __name__ == '__main__':
     initialize_firebase()

@@ -22,6 +22,7 @@ opencv-python-headless==4.8.0.74
 numpy==1.24.3
 insightface==0.7.3
 faiss-cpu==1.7.4
+pandas==2.0.3
 gunicorn==20.1.0
 ```
 
@@ -38,7 +39,21 @@ If deploying to a cloud provider, make sure to set up the appropriate credential
 - For Google Cloud Run or App Engine, you can use the default credentials
 - For other providers, securely add the service account key to your environment
 
-## Step 3: Deploy the Flask App
+## Step 3: Configure Collection Naming
+
+The updated backend automatically generates collection names based on class and time slot:
+```
+[ClassNameWithoutSpaces]_[TimeSlotWithoutSpaces]_embeddings
+[ClassNameWithoutSpaces]_[TimeSlotWithoutSpaces]_attendance
+```
+
+For example, "Math 101" class with "Morning" slot will use:
+- Math101_Morning_embeddings
+- Math101_Morning_attendance
+
+Ensure your Firestore database has the appropriate collections with student embeddings.
+
+## Step 4: Deploy the Flask App
 
 ### Local Development
 
@@ -100,16 +115,37 @@ gunicorn -w 4 -b 0.0.0.0:5000 flaskServer:app
 ```
 5. Configure Nginx as a reverse proxy (recommended)
 
-## Step 4: Update Frontend Configuration
+## Step 5: Update Frontend Configuration
 
-In your React application, update the API endpoint in the environment configuration or directly in the code to point to your deployed Flask backend.
+In your React application, update the API endpoint in the environment configuration:
+
+```
+REACT_APP_FLASK_API_URL=https://your-deployed-flask-app-url
+```
+
+## API Endpoints
+
+The updated Flask backend provides two main endpoints:
+
+1. **POST /process-attendance**
+   - Processes a classroom image to mark attendance
+   - Parameters (form data):
+     - `image`: The classroom photo file
+     - `className`: Class name (e.g., "Math 101")
+     - `timeSlot`: Time slot (e.g., "Morning")
+
+2. **GET /export-attendance**
+   - Exports attendance records to Excel
+   - Parameters (query string):
+     - `className`: Class name
+     - `timeSlot`: Time slot
 
 ## Troubleshooting
 
 - **Memory Issues**: InsightFace and FAISS can be memory-intensive. Ensure your server has sufficient RAM.
-- **Deployment Timeouts**: Increase the timeout settings for your cloud platform as face recognition processing can take time.
+- **Collection Naming**: Check collection names are generated correctly according to the naming pattern.
 - **Missing Dependencies**: Some packages may require additional system libraries. Install them on your server.
-- **CORS Issues**: Ensure the Flask CORS configuration matches your frontend domain.
+- **Excel Export Issues**: If pandas is causing problems, ensure you have openpyxl installed.
 
 ## Monitoring and Scaling
 

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, Upload, UserCheck } from "lucide-react";
+import { Camera, Upload, UserCheck, FileDown } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { toast } from "sonner";
 import { db } from "@/lib/firebase";
@@ -26,6 +27,7 @@ const TakeAttendance = () => {
   const [className, setClassName] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  const [lastAttendanceCollection, setLastAttendanceCollection] = useState<string | null>(null);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -89,6 +91,11 @@ const TakeAttendance = () => {
       setIsLoading(false);
       setProcessingStatus(null);
       
+      // Store the collection name for potential export
+      if (data.collectionName) {
+        setLastAttendanceCollection(data.collectionName);
+      }
+      
       const attendanceCount = data.attendance?.length || 0;
       const facesDetected = data.facesDetected || 0;
       
@@ -106,7 +113,8 @@ const TakeAttendance = () => {
           timeSlot, 
           timestamp: new Date().toISOString(),
           attendance: data.attendance || [],
-          facesDetected
+          facesDetected,
+          collectionName: data.collectionName
         } 
       });
       
@@ -116,6 +124,20 @@ const TakeAttendance = () => {
       setIsLoading(false);
       setProcessingStatus(null);
     }
+  };
+  
+  const handleExportAttendance = () => {
+    if (!className || !timeSlot) {
+      toast.error("Please select a class and time slot to export attendance");
+      return;
+    }
+    
+    // Create URL with query parameters
+    const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
+    
+    // Open in a new tab or download directly
+    window.open(exportUrl, '_blank');
+    toast.success("Excel export initiated");
   };
   
   const renderStatusMessage = () => {
@@ -246,22 +268,35 @@ const TakeAttendance = () => {
             </div>
           )}
           
-          <Button 
-            type="submit" 
-            className="w-full bg-blue-600 hover:bg-blue-700"
-            disabled={isLoading || !photo || !className || !timeSlot}
-          >
-            {isLoading ? (
-              <span className="flex items-center gap-2">
-                <span className="animate-pulse">Processing</span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <UserCheck className="h-5 w-5" />
-                <span>Submit Attendance</span>
-              </span>
-            )}
-          </Button>
+          <div className="flex gap-4">
+            <Button 
+              type="submit" 
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              disabled={isLoading || !photo || !className || !timeSlot}
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-pulse">Processing</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <UserCheck className="h-5 w-5" />
+                  <span>Submit Attendance</span>
+                </span>
+              )}
+            </Button>
+            
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleExportAttendance}
+              className="flex items-center gap-2"
+              disabled={isLoading || !className || !timeSlot}
+            >
+              <FileDown className="h-5 w-5" />
+              <span className="hidden sm:inline">Export Excel</span>
+            </Button>
+          </div>
         </form>
       </div>
     </div>
