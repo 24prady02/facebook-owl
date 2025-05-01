@@ -17,7 +17,7 @@ import AppHeader from "@/components/AppHeader";
 import { toast } from "sonner";
 import { db } from "@/lib/firebase";
 
-const FLASK_API_URL = process.env.REACT_APP_FLASK_API_URL || "http://localhost:5000";
+const FLASK_API_URL = "http://192.0.0.2:5001";
 
 const TakeAttendance = () => {
   const navigate = useNavigate();
