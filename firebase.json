@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "face-detection-452311",
+  "private_key_id": "13fc757954790361f164ce3e55ace4d4fdb60988",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCxZ5Kem/K1+GFl\nmQPaqeMhHWs5ApFy/gE2Nn7kMN0SmbzGa8FCAbxVokYmja0RLaWlG6emhOFL6PEf\nmhE8AnCYVnNQVVgdlO8FVhzUlN0wsmjAUugTxmAf4+DPKomUNnIk3iem0Knhhpse\nUZR/5wuxv6OfenF++tAuGN6QNlo0kYpPrpLUbi3ZpBx/S1fNrDq9LeOfiaBFD+8N\n3sr/hk3jAf9g//bC/YMBxuu1SOIDhHtZFXRgY/MX6CYfWHG7kycaZygFHZlAOVn7\nBfjvuQkh6rpV9nGlnvLV1SZm/a7y6Ng0iQM8KkKL+9w3G/YLrKJnRly0iSphZjgc\nQFDmp8y5AgMBAAECggEAFWcD6suwn+B7y5iGvQIi6zNT5LhZGNDpD4PKkjgM67oN\narjEQ3TXJlOh9/O+reReaAlqk+3TCmfrcx8QtjcrI03GsqnhLAx0O6YUa1ccSkwz\n1AQMiJo1rZM943Bj0bQx2B3PFdJ1tEYbf7Bi5H1YzVRr5okMmT+kDvOkIizUfCPh\nWTq3Uout2utnF4LTDswVtMNlgD+8GcDfYAnN8+ijgYBpgp9fdsHC244syT7MKSQS\nV7Gd5PQbdKkO+GJe1muC9EdAPcdEoH0RdxBhXc2dD3SgjaNZPJ5Ms/h49Xf4g4Gd\nsZ3JkZJnXCj+VqynH5cLNBEFE5bnGztyAKFhVCsNYwKBgQDgXXU07a9QOzMYtrtx\nyuTzP+0nYKIvFwcMNAYPuRUD9wpHhC1s6mlDhVcOrnnOIMwZf5/c4ZoxTEA4ibfY\n5yCBCpiAoHMdeLcDcGvl6pyDXHSzbm6azk1PpV5odPyn9N9AyxFbDtGfc5Cj280e\nLijABkF73QBfyJ92V7d3Rlsf9wKBgQDKaw7qwVUOZNDSeVGRWoDOuQEBjAm8WMJH\n5AYYEJghIvcN16VJbMi2qSqtAxEE9g8PTunT1IawJAACY7R4XHEt9fZuHWaWynMC\nJIzRTVDiA+WSAn0kZ5iRdBB1+FHxCl6UDaSPUKfirz4FGJ/5Ug5PCZLq9Ob5UIGO\nfnix0LmszwKBgQCb8Jj79o845kx3StoxFuHWJ4I/MizHKeweETJ9TxhKLzOXzUh9\nQNd0tIJzk9TY7Xat6kREExFGXkbshNuhB9NRnPmtvNcFjtc0rrhvjobFzkbWR1Tc\nh7K4PqnFVDoeylU5BWrErSII/xtyp9yCs3ZjMHXnDw2phRk/+WtsnRvMtQKBgQCB\nM+TJo64PCfrg3d9a0FH3oc8qlaCBQIaCLOJW6gCw5gicJVGzlGRpc4Fx/csXR5hF\nRTGrrLRsKg53d/zx9s+nbqBlmQ6qoX7Xl0zrLFa8bZBTqpMGcbnI3jTDmEV1fhDw\nn+SyNeFzqDgGOLmkAuRvPsUwhDIKYYDQ25lepsRdsQKBgB/7AN3Ah3jDqdyvdxxM\n5tZDncwe/3oldjbXAp7H3s+cRCU+iP2NDcebu3UMxx+sTeDfW7ZdRLAH28WLACvX\n9asTuWdTG6c8Og4mYdTnzRXqzG9sItuFNoK1zGTiYF96IVczL80uJm02sl6+tR/t\nt0IrAb4F7GsmhSzB4AfFiB0O\n-----END PRIVATE KEY-----\n",
+  "client_email": "colab-63@face-detection-452311.iam.gserviceaccount.com",
+  "client_id": "109480850971906799987",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/colab-63%40face-detection-452311.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
