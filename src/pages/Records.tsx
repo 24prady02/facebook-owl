@@ -97,6 +97,7 @@ const fetchAttendanceRecords = async () => {
   }
 };
 
+
 const Records = () => {
   const [filter, setFilter] = useState<string>("all");
   
