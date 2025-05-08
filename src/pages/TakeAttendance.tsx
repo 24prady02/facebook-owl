@@ -126,32 +126,20 @@ const TakeAttendance = () => {
     }
   };
   
-  const handleExportAttendance = () => {
-    if (!className || !timeSlot) {
-      toast.error("Please select a class and time slot to export attendance");
-      return;
-    }
-    
-    // Create URL with query parameters
-    const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
-    
-    // Open in a new tab or download directly
-    window.open(exportUrl, '_blank');
-    toast.success("Excel export initiated");
-  };
+const handleExportAttendance = () => {
+  if (!className || !timeSlot) {
+    toast.error("Please select a class and time slot to export attendance");
+    return;
+  }
   
-  const renderStatusMessage = () => {
-    if (!processingStatus) return null;
-    
-    switch (processingStatus) {
-      case "uploading":
-        return "Uploading photo...";
-      case "processing":
-        return "Processing faces...";
-      default:
-        return "Processing...";
-    }
-  };
+  // Create URL with query parameters
+  const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
+  
+  // Open in a new tab or download directly
+  window.open(exportUrl, '_blank');
+  toast.success("Excel export initiated");
+};
+
   
   return (
     <div className="min-h-screen bg-gray-50">
