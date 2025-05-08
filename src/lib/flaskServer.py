@@ -17,7 +17,7 @@ import io
 app = Flask(__name__)
 CORS(app)
 
-SERVICE_ACCOUNT_KEY = "/Users/ayush/PycharmProjects/facebook-owl/firebase.json"
+SERVICE_ACCOUNT_KEY = "firebase.json"
 
 class FaceAttendanceSystem:
     def __init__(self, service_account_key_path: Optional[str] = None):
