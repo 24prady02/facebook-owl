@@ -1,5 +1,4 @@
-
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -22,71 +21,88 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
+import { departments } from "./index"; // Import the departments data from index
 
 const FLASK_API_URL = "http://192.0.0.2:5001";
 
 interface AttendanceRecord {
   id: string;
   date: string;
-  className: string;
+  department: string;
+  course: string;
+  branch: string;
+  year: string;
+  semester: string;
   timeSlot: string;
   presentCount: number;
   absentCount: number;
 }
 
-interface StudentAttendance {
-  student_id: string;
-  class: string;
-  slot: string;
-  timestamp: Date;
-  status: string;
-  date: string;
-}
-
-// Function to get collection name based on class and time slot
-const getCollectionName = (className: string, timeSlot: string) => {
-  const cleanClass = className.replace(/\s+/g, '');
+// Function to get collection name based on class details
+const getCollectionName = (
+  department: string,
+  course: string,
+  branch: string,
+  year: string,
+  semester: string,
+  timeSlot: string
+) => {
+  const cleanDept = department.replace(/\s+/g, '');
+  const cleanCourse = course.replace(/\s+/g, '');
+  const cleanBranch = branch.replace(/\s+/g, '');
+  const cleanYear = year.replace(/\s+/g, '');
+  const cleanSem = semester.replace(/\s+/g, '');
   const cleanSlot = timeSlot.replace(/\s+/g, '');
-  return `${cleanClass}_${cleanSlot}_attendance`;
+  return `${cleanDept}_${cleanCourse}_${cleanBranch}_${cleanYear}_${cleanSem}_${cleanSlot}_attendance`;
 };
 
 // Function to fetch attendance records from Firestore
-const fetchAttendanceRecords = async () => {
+const fetchAttendanceRecords = async (
+  department: string,
+  course: string,
+  branch: string,
+  year: string,
+  semester: string
+) => {
   try {
-    const classes = ["Math 101", "Physics 202", "Chemistry 303", "Biology 404"];
     const timeSlots = ["Morning", "Afternoon", "Evening"];
-    
     const records: AttendanceRecord[] = [];
-    
-    for (const className of classes) {
-      for (const timeSlot of timeSlots) {
-        const collectionName = getCollectionName(className, timeSlot);
-        const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+
+    for (const timeSlot of timeSlots) {
+      const collectionName = getCollectionName(
+        department,
+        course,
+        branch,
+        year,
+        semester,
+        timeSlot
+      );
+
+      try {
+        const q = query(
+          collection(db, collectionName),
+          where("date", "==", today)
+        );
         
-        try {
-          const q = query(
-            collection(db, collectionName),
-            where("date", "==", today)
-          );
-          
-          const querySnapshot = await getDocs(q);
-          
-          if (!querySnapshot.empty) {
-            // Count present students
-            const presentCount = querySnapshot.size;
-            
-            records.push({
-              id: `${className}-${timeSlot}-${today}`,
-              date: today,
-              className,
-              timeSlot,
-              presentCount,
-              absentCount: 0, // We don't have absent count in current data model
-            });
-          }
-        } catch (error) {
-          console.log(`No collection found for ${collectionName}`);
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          records.push({
+            id: `${department}-${course}-${branch}-${year}-${semester}-${timeSlot}-${today}`,
+            date: today,
+            department,
+            course,
+            branch,
+            year,
+            semester,
+            timeSlot,
+            presentCount: querySnapshot.size,
+            absentCount: 0, // Would need total class size to calculate this
+          });
         }
+      } catch (error) {
+        console.log(`No collection found for ${collectionName}`);
       }
     }
     
@@ -97,35 +113,65 @@ const fetchAttendanceRecords = async () => {
   }
 };
 
-
 const Records = () => {
-  const [filter, setFilter] = useState<string>("all");
+  const [selectedDepartment, setSelectedDepartment] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedYear, setSelectedYear] = useState("");
+  const [selectedSemester, setSelectedSemester] = useState("");
   
+  // Filter courses based on selected department
+  const courses = selectedDepartment 
+    ? departments.find(dept => dept.name === selectedDepartment)?.courses || []
+    : [];
+    
+  // Filter branches based on selected course
+  const branches = selectedCourse && selectedDepartment
+    ? departments.find(dept => dept.name === selectedDepartment)?.courses.find(course => course.name === selectedCourse)?.branches || []
+    : [];
+    
+  // Filter years based on selected branch
+  const years = selectedBranch && selectedCourse && selectedDepartment
+    ? departments.find(dept => dept.name === selectedDepartment)?.courses.find(course => course.name === selectedCourse)?.branches.find(branch => branch.name === selectedBranch)?.years || []
+    : [];
+    
+  // Filter semesters based on selected year
+  const semesters = selectedYear && selectedBranch && selectedCourse && selectedDepartment
+    ? departments.find(dept => dept.name === selectedDepartment)?.courses.find(course => course.name === selectedCourse)?.branches.find(branch => branch.name === selectedBranch)?.years.find(year => year.year === selectedYear)?.semesters || []
+    : [];
+
   // Use React Query to fetch and cache attendance records
   const { data: attendanceRecords, isLoading, isError, refetch } = useQuery({
-    queryKey: ['attendanceRecords'],
-    queryFn: fetchAttendanceRecords,
+    queryKey: ['attendanceRecords', selectedDepartment, selectedCourse, selectedBranch, selectedYear, selectedSemester],
+    queryFn: () => fetchAttendanceRecords(
+      selectedDepartment,
+      selectedCourse,
+      selectedBranch,
+      selectedYear,
+      selectedSemester
+    ),
+    enabled: !!selectedSemester // Only fetch when semester is selected
   });
-  
-  // Filter records based on selected class
-  const filteredRecords = attendanceRecords?.filter(record => 
-    filter === "all" || record.className === filter
-  ) || [];
-  
-  const handleExportAttendance = (className: string, timeSlot: string) => {
-    if (!className || !timeSlot) {
-      toast.error("Please select a class and time slot to export attendance");
+
+  const handleExportAttendance = (
+    department: string,
+    course: string,
+    branch: string,
+    year: string,
+    semester: string,
+    timeSlot: string
+  ) => {
+    if (!department || !course || !branch || !year || !semester || !timeSlot) {
+      toast.error("Please select all required fields to export attendance");
       return;
     }
     
-    // Create URL with query parameters
-    const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
+    const exportUrl = `${FLASK_API_URL}/export-attendance?department=${encodeURIComponent(department)}&course=${encodeURIComponent(course)}&branch=${encodeURIComponent(branch)}&year=${encodeURIComponent(year)}&semester=${encodeURIComponent(semester)}&timeSlot=${encodeURIComponent(timeSlot)}`;
     
-    // Open in a new tab or download directly
     window.open(exportUrl, '_blank');
     toast.success("Excel export initiated");
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50">
       <AppHeader />
@@ -139,25 +185,134 @@ const Records = () => {
             size="sm" 
             onClick={() => refetch()}
             className="flex items-center gap-2"
+            disabled={!selectedSemester}
           >
             <RefreshCcw className="h-4 w-4" />
             <span>Refresh</span>
           </Button>
         </div>
         
-        <div className="mb-6">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="max-w-sm">
-              <SelectValue placeholder="Filter by class" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Classes</SelectItem>
-              <SelectItem value="Math 101">Math 101</SelectItem>
-              <SelectItem value="Physics 202">Physics 202</SelectItem>
-              <SelectItem value="Chemistry 303">Chemistry 303</SelectItem>
-              <SelectItem value="Biology 404">Biology 404</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+            <Select 
+              value={selectedDepartment} 
+              onValueChange={(value) => {
+                setSelectedDepartment(value);
+                setSelectedCourse("");
+                setSelectedBranch("");
+                setSelectedYear("");
+                setSelectedSemester("");
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((dept) => (
+                  <SelectItem key={dept.name} value={dept.name}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedDepartment && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Course</label>
+              <Select 
+                value={selectedCourse} 
+                onValueChange={(value) => {
+                  setSelectedCourse(value);
+                  setSelectedBranch("");
+                  setSelectedYear("");
+                  setSelectedSemester("");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select course" />
+                </SelectTrigger>
+                <SelectContent>
+                  {courses.map((course) => (
+                    <SelectItem key={course.name} value={course.name}>
+                      {course.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {selectedCourse && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+              <Select 
+                value={selectedBranch} 
+                onValueChange={(value) => {
+                  setSelectedBranch(value);
+                  setSelectedYear("");
+                  setSelectedSemester("");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((branch) => (
+                    <SelectItem key={branch.name} value={branch.name}>
+                      {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {selectedBranch && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+              <Select 
+                value={selectedYear} 
+                onValueChange={(value) => {
+                  setSelectedYear(value);
+                  setSelectedSemester("");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map((year) => (
+                    <SelectItem key={year.year} value={year.year}>
+                      {year.year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {selectedYear && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
+              <Select 
+                value={selectedSemester} 
+                onValueChange={setSelectedSemester}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select semester" />
+                </SelectTrigger>
+                <SelectContent>
+                  {semesters.map((sem) => (
+                    <SelectItem key={sem.sem} value={sem.sem}>
+                      Semester {sem.sem}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         
         <Tabs defaultValue="list" className="mb-8">
@@ -180,14 +335,20 @@ const Records = () => {
                   Error loading attendance records. Please try again.
                 </CardContent>
               </Card>
-            ) : filteredRecords.length === 0 ? (
+            ) : !selectedSemester ? (
               <Card>
                 <CardContent className="py-10 text-center text-gray-500">
-                  No attendance records found.
+                  Please select all filters to view attendance records.
+                </CardContent>
+              </Card>
+            ) : attendanceRecords?.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-gray-500">
+                  No attendance records found for the selected criteria.
                 </CardContent>
               </Card>
             ) : (
-              filteredRecords.map(record => (
+              attendanceRecords?.map(record => (
                 <Card key={record.id} className="overflow-hidden">
                   <div className="flex border-l-4 border-blue-500">
                     <div className="py-4 px-5 bg-blue-50 flex items-center justify-center">
@@ -200,7 +361,12 @@ const Records = () => {
                     <CardContent className="py-4 px-5 flex-1">
                       <div className="flex justify-between items-center">
                         <div>
-                          <h3 className="font-semibold text-lg mb-1">{record.className}</h3>
+                          <h3 className="font-semibold text-lg mb-1">
+                            {record.department} - {record.course} ({record.branch})
+                          </h3>
+                          <p className="text-sm text-gray-600 mb-2">
+                            Year: {record.year}, Semester: {record.semester}
+                          </p>
                           <div className="flex space-x-4 text-sm">
                             <p className="text-green-600">{record.presentCount} Present</p>
                             {record.absentCount > 0 && (
@@ -212,7 +378,14 @@ const Records = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleExportAttendance(record.className, record.timeSlot)}
+                          onClick={() => handleExportAttendance(
+                            record.department,
+                            record.course,
+                            record.branch,
+                            record.year,
+                            record.semester,
+                            record.timeSlot
+                          )}
                           className="flex items-center gap-1"
                         >
                           <FileDown className="h-4 w-4" />
