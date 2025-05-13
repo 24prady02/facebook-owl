@@ -20,6 +20,7 @@ import uuid
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 app = Flask(__name__)
 CORS(app)
@@ -30,6 +31,7 @@ KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
 ATTENDANCE_REQUESTS_TOPIC = 'attendance_requests'
 ATTENDANCE_RESULTS_TOPIC = 'attendance_results'
 SPARK_CHECKPOINT_DIR = './spark_checkpoints'
+MAX_WORKERS = 30  # Number of parallel processing threads
 
 # Initialize Kafka Producer
 producer = KafkaProducer(
@@ -191,6 +193,30 @@ class FaceAttendanceSystem:
 # Initialize the system
 fb_system = FaceAttendanceSystem(SERVICE_ACCOUNT_KEY)
 
+# Thread pool for parallel processing
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+def process_attendance_task(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Task to be executed by thread pool workers"""
+    try:
+        request_id = data['request_id']
+        image_path = data['image_path']
+        class_name = data['class_name']
+        slot = data['slot']
+        
+        # Process attendance
+        result = fb_system.process_attendance(image_path, class_name, slot)
+        
+        return {
+            'request_id': request_id,
+            'result': result
+        }
+    except Exception as e:
+        return {
+            'request_id': data.get('request_id', 'unknown'),
+            'error': str(e)
+        }
+
 # Kafka Consumer Thread for processing attendance requests
 def kafka_consumer_thread():
     consumer = KafkaConsumer(
@@ -204,25 +230,26 @@ def kafka_consumer_thread():
     
     for message in consumer:
         try:
-            data = message.value
-            request_id = data['request_id']
-            image_path = data['image_path']
-            class_name = data['class_name']
-            slot = data['slot']
+            # Submit task to thread pool
+            future = executor.submit(process_attendance_task, message.value)
             
-            # Process attendance
-            result = fb_system.process_attendance(image_path, class_name, slot)
+            # Add callback to send result when task completes
+            def callback(f):
+                try:
+                    result = f.result()
+                    producer.send(ATTENDANCE_RESULTS_TOPIC, result)
+                except Exception as e:
+                    producer.send(ATTENDANCE_RESULTS_TOPIC, {
+                        'request_id': message.value.get('request_id', 'unknown'),
+                        'error': str(e)
+                    })
             
-            # Send result back
-            producer.send(ATTENDANCE_RESULTS_TOPIC, {
-                'request_id': request_id,
-                'result': result
-            })
+            future.add_done_callback(callback)
             
         except Exception as e:
-            print(f"Error processing message: {str(e)}")
+            print(f"Error submitting task: {str(e)}")
             producer.send(ATTENDANCE_RESULTS_TOPIC, {
-                'request_id': data.get('request_id', 'unknown'),
+                'request_id': message.value.get('request_id', 'unknown'),
                 'error': str(e)
             })
 
@@ -261,25 +288,39 @@ def process_attendance_route():
             'slot': slot
         })
         
-        # Wait for result (in production, use WebSockets or polling)
-        consumer = KafkaConsumer(
-            ATTENDANCE_RESULTS_TOPIC,
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            auto_offset_reset='earliest',
-            consumer_timeout_ms=30000,
-            value_deserializer=lambda x: loads(x.decode('utf-8'))
-        )
+        # Return immediately with request ID
+        return jsonify({
+            "status": "queued",
+            "request_id": request_id,
+            "message": "Request received and queued for processing"
+        }), 202
         
-        for message in consumer:
-            if message.value.get('request_id') == request_id:
-                if 'error' in message.value:
-                    return jsonify({"error": message.value['error']}), 500
-                return jsonify(message.value['result']), 200
-                
-        return jsonify({"error": "Timeout waiting for processing"}), 504
-        
-    finally:
+    except Exception as e:
         os.remove(path)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/check-result/<request_id>', methods=['GET'])
+def check_result_route(request_id):
+    """Endpoint to check result status"""
+    consumer = KafkaConsumer(
+        ATTENDANCE_RESULTS_TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        auto_offset_reset='earliest',
+        consumer_timeout_ms=2000,  # Wait up to 2 seconds for messages
+        value_deserializer=lambda x: loads(x.decode('utf-8'))
+    )
+    
+    for message in consumer:
+        if message.value.get('request_id') == request_id:
+            if 'error' in message.value:
+                return jsonify({"error": message.value['error']}), 500
+            return jsonify(message.value['result']), 200
+    
+    return jsonify({
+        "status": "processing",
+        "request_id": request_id,
+        "message": "Request is still being processed"
+    }), 202
 
 @app.route('/export-attendance', methods=['GET'])
 def export_attendance_route():
