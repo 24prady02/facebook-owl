@@ -1,6 +1,5 @@
-
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -14,20 +13,47 @@ import {
 } from "@/components/ui/select";
 import { Camera, Upload, UserCheck, FileDown } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/use-toast";
 import { db } from "@/lib/firebase";
 
 const FLASK_API_URL = "http://192.0.0.2:5001";
 
 const TakeAttendance = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { department, course, branch } = location.state || {};
+  
   const [isLoading, setIsLoading] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [className, setClassName] = useState("");
+  const [selectedYear, setSelectedYear] = useState("");
+  const [selectedSemester, setSelectedSemester] = useState("");
   const [timeSlot, setTimeSlot] = useState("");
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
   const [lastAttendanceCollection, setLastAttendanceCollection] = useState<string | null>(null);
+  
+  // Get the branch data from the department/course/branch selection
+  const selectedBranchData = department && course && branch ? 
+    departments.find(d => d.name === department)
+      ?.courses.find(c => c.name === course)
+      ?.branches.find(b => b.name === branch) : null;
+  
+  // Get the years from the selected branch
+  const years = selectedBranchData?.years || [];
+  
+  // Get the semesters from the selected year
+  const semesters = selectedYear ? 
+    selectedBranchData?.years.find(y => y.year === selectedYear)?.semesters || [] : [];
+  
+  // Set the class name based on selections
+  useEffect(() => {
+    if (department && course && branch && selectedYear && selectedSemester) {
+      setClassName(`${department} - ${course} - ${branch} - ${selectedYear} - Semester ${selectedSemester}`);
+    } else {
+      setClassName("");
+    }
+  }, [department, course, branch, selectedYear, selectedSemester]);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -43,24 +69,50 @@ const TakeAttendance = () => {
   
   const handleCapture = () => {
     console.log("Opening camera");
-    toast.info("Camera functionality will be available in the mobile app");
+    toast({
+      title: "Camera",
+      description: "Camera functionality will be available in the mobile app",
+    });
+  };
+  
+  const renderStatusMessage = () => {
+    switch (processingStatus) {
+      case "uploading":
+        return "Uploading photo to server...";
+      case "processing":
+        return "Processing attendance (analyzing faces)...";
+      default:
+        return "Processing...";
+    }
   };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!photo || !photoFile) {
-      toast.error("Please take or upload a photo");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please take or upload a photo",
+      });
       return;
     }
     
     if (!className) {
-      toast.error("Please select a class");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a class",
+      });
       return;
     }
     
     if (!timeSlot) {
-      toast.error("Please select a time slot");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a time slot",
+      });
       return;
     }
     
@@ -73,7 +125,11 @@ const TakeAttendance = () => {
       formData.append("className", className);
       formData.append("timeSlot", timeSlot);
       
-      toast.info("Uploading photo to server...");
+      toast({
+        title: "Uploading",
+        description: "Uploading photo to server...",
+      });
+      
       setProcessingStatus("processing");
       
       const response = await fetch(`${FLASK_API_URL}/process-attendance`, {
@@ -100,11 +156,23 @@ const TakeAttendance = () => {
       const facesDetected = data.facesDetected || 0;
       
       if (attendanceCount > 0) {
-        toast.success(`Attendance processed! ${attendanceCount} students marked present.`);
+        toast({
+          title: "Success",
+          description: `Attendance processed! ${attendanceCount} students marked present.`,
+          variant: "default",
+        });
       } else if (facesDetected > 0) {
-        toast.warning(`${facesDetected} faces detected, but no matching students found.`);
+        toast({
+          title: "Warning",
+          description: `${facesDetected} faces detected, but no matching students found.`,
+          variant: "destructive",
+        });
       } else {
-        toast.info("No faces detected in the image.");
+        toast({
+          title: "Info",
+          description: "No faces detected in the image.",
+          variant: "default",
+        });
       }
       
       navigate("/success", { 
@@ -114,32 +182,48 @@ const TakeAttendance = () => {
           timestamp: new Date().toISOString(),
           attendance: data.attendance || [],
           facesDetected,
-          collectionName: data.collectionName
+          collectionName: data.collectionName,
+          department,
+          course,
+          branch,
+          year: selectedYear,
+          semester: selectedSemester
         } 
       });
       
     } catch (error) {
       console.error("Error processing attendance:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to process attendance");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to process attendance",
+      });
       setIsLoading(false);
       setProcessingStatus(null);
     }
   };
   
-const handleExportAttendance = () => {
-  if (!className || !timeSlot) {
-    toast.error("Please select a class and time slot to export attendance");
-    return;
-  }
-  
-  // Create URL with query parameters
-  const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
-  
-  // Open in a new tab or download directly
-  window.open(exportUrl, '_blank');
-  toast.success("Excel export initiated");
-};
-
+  const handleExportAttendance = () => {
+    if (!className || !timeSlot) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a class and time slot to export attendance",
+      });
+      return;
+    }
+    
+    // Create URL with query parameters
+    const exportUrl = `${FLASK_API_URL}/export-attendance?className=${encodeURIComponent(className)}&timeSlot=${encodeURIComponent(timeSlot)}`;
+    
+    // Open in a new tab or download directly
+    window.open(exportUrl, '_blank');
+    toast({
+      title: "Export",
+      description: "Excel export initiated",
+      variant: "default",
+    });
+  };
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -150,21 +234,58 @@ const handleExportAttendance = () => {
         
         <form onSubmit={handleSubmit} className="max-w-md mx-auto space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="class">Class</Label>
+            <Label>Selected Class</Label>
+            <div className="p-3 bg-blue-50 rounded-md border border-blue-100 text-sm">
+              {department ? (
+                <div>
+                  <p><span className="font-medium">Department:</span> {department}</p>
+                  {course && <p><span className="font-medium">Course:</span> {course}</p>}
+                  {branch && <p><span className="font-medium">Branch:</span> {branch}</p>}
+                </div>
+              ) : (
+                <p className="text-blue-600">Please select a class from the home page</p>
+              )}
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="year">Year</Label>
             <Select
-              value={className}
-              onValueChange={setClassName}
-              disabled={isLoading}
+              value={selectedYear}
+              onValueChange={setSelectedYear}
+              disabled={isLoading || !years.length}
               required
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select class" />
+                <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Math 101">Math 101</SelectItem>
-                <SelectItem value="Physics 202">Physics 202</SelectItem>
-                <SelectItem value="Chemistry 303">Chemistry 303</SelectItem>
-                <SelectItem value="Biology 404">Biology 404</SelectItem>
+                {years.map((year) => (
+                  <SelectItem key={year.year} value={year.year}>
+                    {year.year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="semester">Semester</Label>
+            <Select
+              value={selectedSemester}
+              onValueChange={setSelectedSemester}
+              disabled={isLoading || !semesters.length}
+              required
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select semester" />
+              </SelectTrigger>
+              <SelectContent>
+                {semesters.map((semester) => (
+                  <SelectItem key={semester.sem} value={semester.sem}>
+                    Semester {semester.sem}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -260,7 +381,7 @@ const handleExportAttendance = () => {
             <Button 
               type="submit" 
               className="flex-1 bg-blue-600 hover:bg-blue-700"
-              disabled={isLoading || !photo || !className || !timeSlot}
+              disabled={isLoading || !photo || !className || !timeSlot || !selectedYear || !selectedSemester}
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -290,5 +411,870 @@ const handleExportAttendance = () => {
     </div>
   );
 };
+
+// Import the departments data so it can be used by this component
+const departments = [
+  {
+    name: "Computer Science Engineering",
+    courses: [
+      {
+        name: "B.Tech",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Artificial Intelligence and Machine Learning",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Cyber Security",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Diploma",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "M.Tech",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Civil Engineering",
+    courses: [
+      {
+        name: "B.Tech",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Environmental Engineering",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Geoinformatics",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Diploma",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Mechanical Engineering",
+    courses: [
+      {
+        name: "B.Tech",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Electric Vehicles",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Mechatronics",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Diploma",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Electronics and Communication Engineering",
+    courses: [
+      {
+        name: "B.Tech",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Drone Technology",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Very Large Scale Integration",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "School of Computing",
+    courses: [
+      {
+        name: "BCA",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Artificial Intelligence and Data Science",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "MCA",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Management",
+    courses: [
+      {
+        name: "BBA",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "International Finance and Accountancy with ACCA",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "B.Com",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "International Finance and Accountancy with ACCA",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "MBA",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Nursing",
+    courses: [
+      {
+        name: "B.Sc. Nursing",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Pharmacy",
+    courses: [
+      {
+        name: "B.Pharma",
+        branches: [
+          {
+            name: "Core",
+            years: [
+              {
+                year: "1st Year",
+                semesters: [
+                  { sem: "1" },
+                  { sem: "2" },
+                ],
+              },
+              {
+                year: "2nd Year",
+                semesters: [
+                  { sem: "3" },
+                  { sem: "4" },
+                ],
+              },
+              {
+                year: "3rd Year",
+                semesters: [
+                  { sem: "5" },
+                  { sem: "6" },
+                ],
+              },
+              {
+                year: "4th Year",
+                semesters: [
+                  { sem: "7" },
+                  { sem: "8" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  // Add more departments here if needed
+];
 
 export default TakeAttendance;
